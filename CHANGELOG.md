@@ -2,6 +2,27 @@
 
 本项目的重要变更记录在此文件中，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.4.117] - 2026-11-24
+### 新增：工具可见性上限 + BM25 工具搜索（P2-2）
+
+- **默认 30 个可见工具**：写回/核心执行面（Bash/文件、record_fact/report_finding/
+  insert_assets/save_evidence、http_request/session_login、goal/coverage 工具等）
+  永远可见；其余领域工具按当前任务/意图文本做 BM25 排序，保留 top N，剩余进入
+  SDK deferred 机制（schema 不进 prompt，只列名字）。
+- **BM25 搜索**：新增 `search_tools`（只读），对全部工具（含 deferred）按
+  name/description/prompt/schema 做 BM25，返回 name/description/schema/deferred；
+  延迟工具用 SDK 的 `ExecuteExtraTool` 调用。SDK 自带的 `SearchExtraTools` 仍保留。
+- **可关闭**：`POJUN_TOOL_VISIBILITY_LIMIT=0` 恢复全量可见；负数等价关闭。
+  默认 30，写回/核心工具即使超限也不会被藏。
+- 纯 schema 预算层：不改变工具注册、权限、执行行为；无匹配/无查询时按原顺序
+  补齐上限内工具，避免整类工具被藏光。
+
+### 测试
+
+- BM25 中英文/空查询；可见性上限/BM25 选中/essential 保留/关闭开关；
+  `search_tools` 返回 deferred 标记与 schema。
+- 干净库：agent 70.8s / server 46.3s 全绿；`go vet` 通过。
+
 ## [0.4.116] - 2026-11-24
 ### 新增：原生 HTTP 出口 allow/deny + 时间窗 + 并发上限（P2-4 第一批）
 
