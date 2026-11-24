@@ -1517,6 +1517,40 @@ export interface MCPServer {
   tool_count?: number;
 }
 
+// ---- 确定性回归检查（v0.4.119） ----
+export interface FindingRegression {
+  id: string;
+  finding_id: string;
+  task_id?: string;
+  vulnclass: string;
+  baseline_traffic_id?: string;
+  proof_traffic_id: string;
+  method: string;
+  url: string;
+  assertion: "status" | "token" | "diff" | string;
+  expected_status: number;
+  token?: string;
+  created_at: string;
+  last_checked_at?: string;
+  last_verdict?: string;
+  last_note?: string;
+}
+
+export interface FindingRegressionResponse {
+  finding_id: string;
+  regression: FindingRegression | null;
+}
+
+export interface FindingRegressionCheck {
+  finding_id: string;
+  verdict: "pass" | "fail" | "inconclusive" | "not_replayable" | string;
+  note: string;
+  status: number;
+  matched: boolean;
+  assertion: string;
+  regression?: FindingRegression;
+}
+
 export interface MCPTool {
   name: string;
   description: string;

@@ -24,10 +24,10 @@ import (
 	"github.com/chu0119/pojun/db"
 )
 
-const defaultToolVisibilityLimit = 30
+const defaultToolVisibilityLimit = 0 // 默认关闭；设置 POJUN_TOOL_VISIBILITY_LIMIT=30 才启用
 
 // ToolVisibilityLimit is a package hook so the server can later wire a setting.
-// nil/unset = env POJUN_TOOL_VISIBILITY_LIMIT (0=off), default 30.
+// nil/unset = env POJUN_TOOL_VISIBILITY_LIMIT (0=off, default off).
 var ToolVisibilityLimit func() int
 
 func toolVisibilityLimit() int {

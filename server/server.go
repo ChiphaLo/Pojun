@@ -943,6 +943,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/report", s.getReport)
 	mux.HandleFunc("GET /api/report/export", s.exportTaskDocx)
 	mux.HandleFunc("GET /api/findings/{id}/export", s.exportFindingDocx)
+	mux.HandleFunc("GET /api/findings/{id}/regression", s.findingRegression)
+	mux.HandleFunc("POST /api/findings/{id}/regression/check", s.checkFindingRegression)
 	mux.HandleFunc("GET /api/tools/inventory", s.toolsInventory)
 	// 宿主环境:体检(含一键安装可用性)+ 一键安装(经特权助手 pojun-hostd)
 	mux.HandleFunc("GET /api/hostenv/status", s.hostenvStatus)

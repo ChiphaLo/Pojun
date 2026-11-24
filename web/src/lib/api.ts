@@ -46,6 +46,8 @@ import type {
   FindingStats,
   FindingStatus,
   FindingsPage,
+  FindingRegressionCheck,
+  FindingRegressionResponse,
   FindingTraffic,
   FindingTrafficDetail,
   HostenvStatus,
@@ -688,6 +690,10 @@ export const api = {
     get<Finding>(
       `/exploration/findings/${id}${contextTaskId ? `?context_task=${encodeURIComponent(contextTaskId)}` : ""}`,
     ),
+  findingRegression: (id: string) =>
+    get<FindingRegressionResponse>(`/findings/${encodeURIComponent(id)}/regression`),
+  checkFindingRegression: (id: string, allowWrite = false) =>
+    post<FindingRegressionCheck>(`/findings/${encodeURIComponent(id)}/regression/check`, { allow_write: allowWrite }),
   findingTraffic: (id: string, contextTask?: string) =>
     get<FindingTraffic>(
       `/exploration/findings/${id}/traffic${contextTask ? `?context_task=${encodeURIComponent(contextTask)}` : ""}`,

@@ -1310,6 +1310,28 @@ CREATE TABLE IF NOT EXISTS finding_traffic_bindings (
 CREATE INDEX IF NOT EXISTS idx_finding_traffic_order ON finding_traffic_bindings(finding_id, position, id);
 CREATE INDEX IF NOT EXISTS idx_finding_traffic_snapshot ON finding_traffic_bindings(snapshot_id);
 
+-- 确定性回归库（v0.4.119）：审计通过的 finding 自动沉淀一个可重放检查。
+-- 不存请求头/正文（可能含凭据）：只存流量 ID，检查时从 traffic store 取；
+-- 流量被清理后检查返回 not_replayable，不隐式重建。
+CREATE TABLE IF NOT EXISTS finding_regressions (
+    id                  BIGSERIAL PRIMARY KEY,
+    finding_id          BIGINT NOT NULL UNIQUE REFERENCES findings(id) ON DELETE CASCADE,
+    task_id             BIGINT REFERENCES tasks(id) ON DELETE CASCADE,
+    vulnclass           TEXT NOT NULL DEFAULT '',
+    baseline_traffic_id TEXT NOT NULL DEFAULT '',
+    proof_traffic_id    TEXT NOT NULL DEFAULT '',
+    method              TEXT NOT NULL DEFAULT '',
+    url                 TEXT NOT NULL DEFAULT '',
+    assertion           TEXT NOT NULL DEFAULT 'status', -- status|token|diff
+    expected_status     INTEGER NOT NULL DEFAULT 0,
+    token               TEXT NOT NULL DEFAULT '',
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_checked_at     TIMESTAMPTZ,
+    last_verdict        TEXT NOT NULL DEFAULT '',
+    last_note           TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_finding_regressions_task ON finding_regressions(task_id);
+
 -- =====================================================================
 -- M. 后端日志持久化
 -- =====================================================================

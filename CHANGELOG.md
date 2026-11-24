@@ -2,6 +2,42 @@
 
 本项目的重要变更记录在此文件中，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.4.119] - 2026-11-25
+### 新增：确定性回归库（P2-7）
+
+- **数据层**：`finding_regressions`（finding_id 唯一）保存 vulnclass、baseline/proof
+  traffic_id、method/url、assertion（token/diff/status）、expected_status、token、
+  last_verdict/last_checked_at。**不落请求头/正文**（可能含 Cookie/凭据），检查时
+  从 traffic store 现取；流量清理后返回 `not_replayable`。
+- **自动沉淀**：finding 绑定了 proof/verification 流量且验证通过时，在 finding
+  事务内生成 spec（validator token 优先；http_diff/dual_identity 用 diff；否则
+  状态码弱断言）。回归层失败不影响 finding 落库。
+- **回放**：`GET/POST /api/findings/{id}/regression[/check]`；按原始请求重放，
+  token 存在=pass、diff 对照不消失=pass、状态码=弱 pass；POST/PUT/PATCH/DELETE
+  默认拒绝，必须显式 `allow_write=true`。回放仍受 Program Profile 的 allow/deny/
+  时间窗约束，不自动调度、不自动重试。
+- **前端**：漏洞详情新增「确定性回归检查」卡（spec 摘要、最近 verdict、运行按钮、
+  状态变更请求显式勾选）。
+
+### 调整：工具可见性默认关闭
+
+- `POJUN_TOOL_VISIBILITY_LIMIT` 默认值由 30 改为 **0（关闭）**，避免未经真实任务
+  A/B 的默认隐藏导致产出下降；需要的部署显式设置为 20–40 才启用。
+- v0.4.117 的 BM25/`search_tools`/deferred 机制保留，启用上限时仍生效。
+
+### 明确 non-goal
+
+- Bash/MCP 的非 HTTP 流量真硬边界需要网络命名空间/防火墙或独立代理组件，当前
+  v0.4.119 不提供假边界；原生 HTTP 的 allow/deny/时间窗/并发与 Program Profile
+  提示仍生效。P2-4 的 HTTP(S) shim 未在本版硬塞，避免破坏现有流量与出口回执语义。
+
+### 测试
+
+- DB：regression 往返/token 解析/无 proof 不生成/结果回读；
+- Server：原始请求解析、危险方法 allow_write；
+- 干净库：db 47.4s / agent 80.8s / server 52.5s / evidence 5.9s 全绿；
+- 前端 tsc + 静态导出通过。
+
 ## [0.4.118] - 2026-11-24
 ### 新增：OpenTelemetry 追踪（P2-3）
 

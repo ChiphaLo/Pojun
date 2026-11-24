@@ -290,3 +290,19 @@ func isSafeHTTPMethod(method string) bool {
 	}
 	return false
 }
+
+// CheckProgramEgressProfile is the exported policy check used by server-side
+// replay/regression checks. It applies the same deny/allow/window semantics as
+// native HTTP tools; empty fields mean no restriction.
+func CheckProgramEgressProfile(host string, p *db.ProgramProfile, now time.Time) error {
+	if p == nil {
+		return nil
+	}
+	loc := time.Local
+	if strings.TrimSpace(p.Timezone) != "" {
+		if l, err := time.LoadLocation(strings.TrimSpace(p.Timezone)); err == nil {
+			loc = l
+		}
+	}
+	return checkProgramEgress(host, now, p.AllowedHosts, p.DeniedHosts, p.WindowStart, p.WindowEnd, loc)
+}
