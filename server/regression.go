@@ -177,6 +177,17 @@ func (s *Server) replayRawRequest(ctx context.Context, fallbackURL, raw string) 
 		return 0, "", fmt.Errorf("无法解析请求行")
 	}
 	targetURL := strings.TrimSpace(target)
+	if strings.HasPrefix(targetURL, "/") {
+		// baseline/proof 的 path 可能不同：用各自请求行 path + Host 重建，
+		// 不能一律回落到 proof 的 fallback URL。
+		if base, err := url.Parse(fallbackURL); err == nil && base.Host != "" {
+			host := headers.Get("Host")
+			if host == "" {
+				host = base.Host
+			}
+			targetURL = base.Scheme + "://" + host + targetURL
+		}
+	}
 	if !strings.HasPrefix(strings.ToLower(targetURL), "http://") && !strings.HasPrefix(strings.ToLower(targetURL), "https://") {
 		targetURL = fallbackURL
 	}
