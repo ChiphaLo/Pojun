@@ -657,6 +657,8 @@ func (w *Worker) execute(ctx context.Context, name string, taskID int64, as *db.
 	// 终态经验（v0.4.100）：同维度/同资产上已经失败或零产出的方向，引擎在终态
 	// 自动沉淀；worker 开局先看，避免重复同一种打法。
 	sysBody += recentLessonsBlock(ts, intent, 3)
+	// P2-1 工具路由：同维度历史工具错误率，提示 worker 别重复高错误率打法。
+	sysBody += toolRoutingBlock(ts, intent, 5)
 	// 自主推进：本意图必须被证实/证伪，不得空转收场。
 	sysBody += autopilotTail(ctx, autopilotWorkerGuidance)
 	sysBody += "\n\n开始执行上面这条意图：只做它、只产生事实、assets、finding、做完即停。"

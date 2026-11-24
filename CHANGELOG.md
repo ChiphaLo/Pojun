@@ -2,6 +2,25 @@
 
 本项目的重要变更记录在此文件中，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.4.114] - 2026-11-24
+### 新增：维度级工具路由学习（P2-1 第一批）
+
+- **统计**：`db.ToolOutcomeStats` 按「本任务维度 × 工具 × 结果」聚合
+  `activity`（tool_use / tool_result.is_error）与 `intent_reflections.dimension`；
+  只保留 ≥3 次调用的工具，按错误率升序、使用量降序取 Top 5。
+- **注入**：worker 启动时（`agent/tool_routing.go`）只在同维度至少 2 个工具、
+  合计 ≥8 次调用时，把「本维度工具表现（历史，仅参考）」追加到 system prompt；
+  写回/控制类工具排除；无足够样本时提示词逐字不变。
+- **只读、不拦截**：不改变工具选择、不降权、不阻止调用；只是把高错误率手段
+  提前告诉 worker，减少重复踩坑。错误率展示封顶 100%（一个 use 可能对应多条
+  error result）。
+
+### 测试
+
+- DB：`TestToolOutcomeStats`（维度过滤、最小样本、错误率排序、其他维度为空）。
+- Agent：`TestRenderToolRoutingStats`、`TestToolRoutingBlock`（注入/稀疏不注入）。
+- 干净库：db 44.4s / agent 67.9s 全绿；`go vet` 通过。
+
 ## [0.4.113] - 2026-11-24
 ### 安全：Program Profile 输入校验
 
