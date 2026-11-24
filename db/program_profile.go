@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -54,6 +55,9 @@ func (p *ProgramProfile) Normalize() error {
 	if len([]rune(p.Handle)) > 128 {
 		return fmt.Errorf("handle 超过 128 字")
 	}
+	if hasProfileControl(p.Platform) || hasProfileControl(p.Handle) {
+		return fmt.Errorf("platform/handle 含控制字符")
+	}
 	var err error
 	if p.Scope, err = normalizeProfileList(p.Scope, ProgramProfileMaxScope, ProgramProfileMaxItemRunes); err != nil {
 		return fmt.Errorf("scope: %w", err)
@@ -64,7 +68,7 @@ func (p *ProgramProfile) Normalize() error {
 	if p.ScannersAllowed, err = normalizeProfileList(p.ScannersAllowed, ProgramProfileMaxScanners, 64); err != nil {
 		return fmt.Errorf("scanners_allowed: %w", err)
 	}
-	if p.RPS < 0 || p.RPS > ProgramProfileMaxRPS {
+	if math.IsNaN(p.RPS) || math.IsInf(p.RPS, 0) || p.RPS < 0 || p.RPS > ProgramProfileMaxRPS {
 		return fmt.Errorf("rps 必须在 0-%d 之间", ProgramProfileMaxRPS)
 	}
 	if p.RPS > 0 {
@@ -82,6 +86,17 @@ func (p *ProgramProfile) IsZero() bool {
 		!p.AllowRace && !p.DryRun && p.RPS == 0)
 }
 
+// hasProfileControl rejects CR/LF/TAB/DEL and other C0 controls: profile strings
+// are rendered into prompts and handle is injected as an HTTP header value.
+func hasProfileControl(s string) bool {
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f {
+			return true
+		}
+	}
+	return false
+}
+
 func normalizeProfileList(in []string, maxItems, maxRunes int) ([]string, error) {
 	out := make([]string, 0, len(in))
 	seen := map[string]bool{}
@@ -92,6 +107,9 @@ func normalizeProfileList(in []string, maxItems, maxRunes int) ([]string, error)
 		}
 		if len([]rune(s)) > maxRunes {
 			return nil, fmt.Errorf("单条超过 %d 字", maxRunes)
+		}
+		if hasProfileControl(s) {
+			return nil, fmt.Errorf("含控制字符")
 		}
 		k := strings.ToLower(s)
 		if seen[k] {

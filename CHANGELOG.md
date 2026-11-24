@@ -2,6 +2,16 @@
 
 本项目的重要变更记录在此文件中，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.4.113] - 2026-11-24
+### 安全：Program Profile 输入校验
+
+- `handle` 会作为 `X-Bug-Bounty` HTTP 头值发送，`platform/handle/scope/excluded/
+  scanners_allowed` 会进入系统提示。`Normalize` 现在拒绝 CR/LF/TAB/DEL 等控制
+  字符（防头注入/提示结构破坏），并拒绝 `NaN/Inf` RPS；长度/条数上限保持原值。
+- 新增校验测试（`a
+X-Evil: 1`、TAB、NUL 全部拒绝）；不影响合法 handle
+  （字母/数字/`.-_` 等仍可用）。
+
 ## [0.4.112] - 2026-11-24
 ### 新增：SRC/众测 Program Profile（P2-6 第一批）
 

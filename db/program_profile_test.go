@@ -23,6 +23,12 @@ func TestProgramProfileValidation(t *testing.T) {
 	if err := bad.Normalize(); err == nil {
 		t.Fatal("rps>100 must fail")
 	}
+	for _, h := range []string{"a\r\nX-Evil: 1", "a\tb", "a\x00b"} {
+		if err := (&ProgramProfile{Handle: h}).Normalize(); err == nil {
+			t.Fatalf("handle %q should be rejected", h)
+		}
+	}
+
 	tooMany := ProgramProfile{Scope: make([]string, ProgramProfileMaxScope+1)}
 	for i := range tooMany.Scope {
 		tooMany.Scope[i] = fmt.Sprintf("host%d.example.com", i)
