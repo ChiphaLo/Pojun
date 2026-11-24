@@ -286,6 +286,9 @@ WHERE archive.id=$1 FOR UPDATE OF archive,task`, archiveID).Scan(&taskID, &expID
 	if err := restoreFindingTrafficTx(tx, snapshot); err != nil {
 		return nil, fmt.Errorf("restore finding traffic: %w", err)
 	}
+	if err := insertArchiveRows(tx, "finding_regressions", remappedTables["finding_regressions"]); err != nil {
+		return nil, fmt.Errorf("restore finding_regressions: %w", err)
+	}
 	if streamedLLMRecords != "" {
 		count, err := insertArchiveJSONSequenceRows(tx, "llm_records", llmRecords)
 		if err != nil {
@@ -399,7 +402,8 @@ func insertArchiveRows(tx *sql.Tx, table string, raw json.RawMessage) error {
 	allowed := map[string]bool{
 		"exploration_nodes": true, "exploration_edges": true, "exploration_anchors": true,
 		"task_constraints": true, "activity": true, "task_asset_links": true, "findings": true,
-		"llm_records": true, "llm_usage": true, "skill_usage": true, "tool_usage": true,
+		"finding_regressions": true,
+		"llm_records":         true, "llm_usage": true, "skill_usage": true, "tool_usage": true,
 		"side_question_sessions": true, "side_question_requests": true,
 	}
 	if !allowed[table] {
