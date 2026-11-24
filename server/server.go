@@ -34,6 +34,7 @@ import (
 	"github.com/chu0119/pojun/llmpresets"
 	"github.com/chu0119/pojun/llmrec"
 	"github.com/chu0119/pojun/report"
+	"github.com/chu0119/pojun/telemetry"
 	"github.com/chu0119/pojun/traffic"
 	"github.com/chu0119/pojun/vault"
 )
@@ -172,6 +173,7 @@ type triggeredRun struct {
 }
 
 func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDir string) *Server {
+	telemetry.Init(ctx) // OTLP 仅在显式 OTEL_TRACES_EXPORTER=otlp/endpoint 时启用
 	key, err := loadOrCreateJWTKey(keyDir, dataDir)
 	if err != nil {
 		log.Fatalf("[auth] JWT key: %v", err)

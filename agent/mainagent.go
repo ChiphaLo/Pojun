@@ -12,6 +12,8 @@ import (
 	"github.com/chu0119/pojun/db"
 	"github.com/chu0119/pojun/hosttools"
 	"github.com/chu0119/pojun/intercept"
+	"github.com/chu0119/pojun/telemetry"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // MainAgent is the thin human-interface orchestrator (docs §4.2 / §7). The human
@@ -142,6 +144,11 @@ func mainAgentSystem(goal, dataDir, workDir string) string {
 // text / result) so the main-agent session shows its work — exactly like the
 // worker/planner sessions — not just the final answer.
 func (m *MainAgent) Chat(ctx context.Context, taskID int64, mainSeg int, as *db.AssetStore, ts *db.ExplorationStore, goal, message string, emit func(db.Activity), notify, resume func(), notifyGoal, notifyHint func([]string)) (string, error) {
+	ctx, span := telemetry.Start(ctx, "pojun.main_agent",
+		attribute.Int64("task.id", taskID),
+		attribute.String("gen_ai.request.model", m.model),
+	)
+	defer span.End()
 	tsx := NewToolSet(ts, "human")
 	tsx.SetEgressProxy(m.proxyAddr, m.proxyCACert) // 原生 http_request/session_login 与 Bash 同源出口
 	tsx.SetFindingRecorder(m.findingRecorder)

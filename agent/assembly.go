@@ -68,7 +68,7 @@ func AugmentTools(ctx context.Context, agentKey string, base []actool.CoreTool) 
 	for i, t := range out {
 		// 内层 panic 兜底，外层给外部回显加不可信边界（P2-5）。顺序不能反：
 		// panic 也要被包成普通 tool_result，再统一进入隔离层。
-		out[i] = &untrustedTool{CoreTool: guardPanic(t)}
+		out[i] = &tracedTool{CoreTool: &untrustedTool{CoreTool: guardPanic(t)}}
 	}
 	return out, def, cleanup
 }

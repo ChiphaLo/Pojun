@@ -2,6 +2,24 @@
 
 本项目的重要变更记录在此文件中，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.4.118] - 2026-11-24
+### 新增：OpenTelemetry 追踪（P2-3）
+
+- 新增 `telemetry/`：默认完全 no-op；设置 `OTEL_TRACES_EXPORTER=otlp` 或
+  `OTEL_EXPORTER_OTLP_ENDPOINT` 后启用 OTLP/HTTP 导出，`OTEL_SDK_DISABLED=true`
+  可显式关闭。
+- Span：`pojun.plan` / `pojun.worker` / `pojun.main_agent` 与每次工具调用
+  `execute_tool.<name>`；属性含 `task.id`、`intent.id`、`gen_ai.request.model`、
+  `tool.name`、`tool.is_error`、`tool.result_chars`。错误会 RecordError + Error 状态。
+- 接线：`server.New` 初始化全局 tracer provider；agent 的 tool 装饰器统一包 span。
+  默认无 exporter，不产生网络请求、不改变任何工具行为。
+- 依赖：`go.opentelemetry.io/otel` + sdk + otlptracehttp v1.35.0。
+
+### 测试
+
+- `TestTracedToolEmitsSpan`（内存 exporter 断言 span 名与 tool.name）；
+  `telemetry.Start` no-op 安全；干净库回归。
+
 ## [0.4.117] - 2026-11-24
 ### 新增：工具可见性上限 + BM25 工具搜索（P2-2）
 

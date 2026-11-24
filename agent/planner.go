@@ -14,6 +14,8 @@ import (
 	"github.com/Autumn-27/norma/transcript"
 	"github.com/chu0119/pojun/db"
 	"github.com/chu0119/pojun/intercept"
+	"github.com/chu0119/pojun/telemetry"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // Planner is the event-driven LLM planner (docs §4.3): each time the asset or
@@ -452,6 +454,11 @@ func plannerSystem(goal, dataDir, workDir string) string {
 // for time/heartbeat wakes). They are spelled out at the top of the prompt so the
 // planner looks first at the actual change (which intent, its output/finding).
 func (p *Planner) Plan(ctx context.Context, taskID int64, as *db.AssetStore, ts *db.ExplorationStore, goal string, triggers []TriggerEvent, emit func(db.Activity)) (met bool, reason string, err error) {
+	ctx, span := telemetry.Start(ctx, "pojun.plan",
+		attribute.Int64("task.id", taskID),
+		attribute.String("gen_ai.request.model", p.model),
+	)
+	defer span.End()
 	// cold-digest §2.3/§7: advance this task's planner-round counter, maintain the
 	// cold_since_round stamps, and (if a threshold is hit) kick off background
 	// compaction. Synchronous part is cheap (a few queries); the LLM compaction
