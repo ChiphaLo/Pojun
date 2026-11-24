@@ -158,6 +158,12 @@ export interface ProgramProfile {
   allow_race?: boolean;
   dry_run?: boolean;
   rps?: number; // 0/缺省 = 不限速
+  allowed_hosts?: string[]; // 原生 HTTP allowlist；空=不限
+  denied_hosts?: string[]; // deny 优先
+  window_start?: string; // HH:MM
+  window_end?: string;
+  timezone?: string; // IANA
+  max_concurrent?: number; // 0=不限
 }
 
 export interface TaskProgramProfileResponse {

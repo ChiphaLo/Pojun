@@ -348,10 +348,14 @@ func (t *ToolSet) buildHTTPClient(jar http.CookieJar, follow, insecure bool, tim
 	if jar != nil {
 		c.Jar = jar
 	}
-	if !follow {
-		c.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+	c.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if !follow {
 			return http.ErrUseLastResponse
 		}
+		// 重定向目标也必须过 host allow/deny 与时间窗；否则一个 302 就能绕过
+		// 初始 URL 的硬边界。
+		return checkProgramEgress(req.URL.Hostname(), time.Now(), t.programAllowedHosts, t.programDeniedHosts,
+			t.programWindowStart, t.programWindowEnd, t.programLoc)
 	}
 	return c, nil
 }
@@ -421,6 +425,19 @@ func (t *ToolSet) doHTTP(ctx context.Context, a httpArgs, jar http.CookieJar) ht
 	if timeout > 120 {
 		timeout = 120
 	}
+	// P2-4 第一批：原生 HTTP 的 host allow/deny 与时间窗硬边界；空 profile 字段
+	// 表示不限制。Bash/MCP 没有统一入口，不做半套硬边界。
+	if err := checkProgramEgress(u.Hostname(), time.Now(), t.programAllowedHosts, t.programDeniedHosts,
+		t.programWindowStart, t.programWindowEnd, t.programLoc); err != nil {
+		out.Err = err
+		return out
+	}
+	release, err := acquireProgramSlot(ctx, t.taskID, t.programMaxConcurrent)
+	if err != nil {
+		out.Err = fmt.Errorf("program 并发等待被取消: %w", err)
+		return out
+	}
+	defer release()
 	// program profile 的 RPS 只作用于原生 HTTP 执行器（Bash/MCP 没有统一请求
 	// 入口，不做半套硬边界）；未配置 profile 时 waitProgramRPS 立即返回。
 	if err := waitProgramRPS(ctx, t.taskID); err != nil {

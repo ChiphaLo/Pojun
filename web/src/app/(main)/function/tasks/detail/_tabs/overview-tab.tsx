@@ -1414,9 +1414,16 @@ function TaskProgramProfileCard({ taskId }: { taskId: string }) {
     rps: string;
     dryRun: boolean;
     allowRace: boolean;
+    allowedHosts: string;
+    deniedHosts: string;
+    windowStart: string;
+    windowEnd: string;
+    timezone: string;
+    maxConcurrent: string;
   };
   const empty: Form = {
     platform: "", handle: "", scope: "", excluded: "", scanners: "", rps: "", dryRun: false, allowRace: false,
+    allowedHosts: "", deniedHosts: "", windowStart: "", windowEnd: "", timezone: "", maxConcurrent: "",
   };
   const fromProfile = (p: ProgramProfile | null): Form => ({
     platform: p?.platform ?? "",
@@ -1427,6 +1434,12 @@ function TaskProgramProfileCard({ taskId }: { taskId: string }) {
     rps: p?.rps ? String(p.rps) : "",
     dryRun: !!p?.dry_run,
     allowRace: !!p?.allow_race,
+    allowedHosts: (p?.allowed_hosts ?? []).join("\n"),
+    deniedHosts: (p?.denied_hosts ?? []).join("\n"),
+    windowStart: p?.window_start ?? "",
+    windowEnd: p?.window_end ?? "",
+    timezone: p?.timezone ?? "",
+    maxConcurrent: p?.max_concurrent ? String(p.max_concurrent) : "",
   });
   const splitLines = (s: string) => s.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
   const splitList = (s: string) => s.split(/[,\n]/).map((x) => x.trim()).filter(Boolean);
@@ -1472,6 +1485,11 @@ function TaskProgramProfileCard({ taskId }: { taskId: string }) {
       toast.error("RPS 必须在 0-100 之间");
       return;
     }
+    const maxConcurrent = form.maxConcurrent.trim() ? Number(form.maxConcurrent) : 0;
+    if (!Number.isFinite(maxConcurrent) || maxConcurrent < 0 || maxConcurrent > 32) {
+      toast.error("并发上限必须在 0-32 之间");
+      return;
+    }
     void persist({
       platform: form.platform.trim(),
       handle: form.handle.trim(),
@@ -1481,11 +1499,19 @@ function TaskProgramProfileCard({ taskId }: { taskId: string }) {
       allow_race: form.allowRace,
       dry_run: form.dryRun,
       rps,
+      allowed_hosts: splitLines(form.allowedHosts),
+      denied_hosts: splitLines(form.deniedHosts),
+      window_start: form.windowStart,
+      window_end: form.windowEnd,
+      timezone: form.timezone.trim(),
+      max_concurrent: maxConcurrent,
     });
   }
 
   const configured = !!saved && (saved.platform || saved.handle || saved.scope?.length ||
-    saved.excluded?.length || saved.scanners_allowed?.length || saved.allow_race || saved.dry_run || saved.rps);
+    saved.excluded?.length || saved.scanners_allowed?.length || saved.allow_race || saved.dry_run ||
+    saved.rps || saved.allowed_hosts?.length || saved.denied_hosts?.length ||
+    saved.window_start || saved.max_concurrent);
   const platformLabel: Record<string, string> = {
     hackerone: "HackerOne", bugcrowd: "Bugcrowd", intigriti: "Intigriti", yeswehack: "YesWeHack", other: "其他",
   };
@@ -1504,6 +1530,7 @@ function TaskProgramProfileCard({ taskId }: { taskId: string }) {
                 {saved?.rps ? <Badge variant="secondary">{saved.rps} req/s</Badge> : null}
                 {saved?.dry_run ? <Badge variant="destructive">dry-run</Badge> : null}
                 {saved?.allow_race ? <Badge variant="secondary">允许竞态</Badge> : null}
+                {saved?.window_start ? <Badge variant="outline">{saved.window_start}-{saved.window_end}</Badge> : null}
               </>
             ) : (
               <span className="text-muted-foreground text-sm">未配置（不影响现有流程）</span>
@@ -1566,6 +1593,34 @@ function TaskProgramProfileCard({ taskId }: { taskId: string }) {
                 <Textarea rows={3} value={form.excluded} onChange={(e) => setForm({ ...form, excluded: e.target.value })} placeholder="admin.example.com" />
               </label>
             </div>
+            <div className="grid gap-3 lg:grid-cols-2">
+              <label className="flex flex-col gap-1.5 text-sm">
+                <span className="text-muted-foreground text-xs">原生 HTTP allowlist（每行 host，支持 *.example.com；空=不限）</span>
+                <Textarea rows={3} value={form.allowedHosts} onChange={(e) => setForm({ ...form, allowedHosts: e.target.value })} placeholder="example.com 或 *.api.example.com" />
+              </label>
+              <label className="flex flex-col gap-1.5 text-sm">
+                <span className="text-muted-foreground text-xs">原生 HTTP denylist（每行 host，优先于 allow）</span>
+                <Textarea rows={3} value={form.deniedHosts} onChange={(e) => setForm({ ...form, deniedHosts: e.target.value })} placeholder="admin.example.com" />
+              </label>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <label className="flex flex-col gap-1.5 text-sm">
+                <span className="text-muted-foreground text-xs">测试时间窗开始（HH:MM）</span>
+                <Input type="time" value={form.windowStart} onChange={(e) => setForm({ ...form, windowStart: e.target.value })} />
+              </label>
+              <label className="flex flex-col gap-1.5 text-sm">
+                <span className="text-muted-foreground text-xs">测试时间窗结束（HH:MM）</span>
+                <Input type="time" value={form.windowEnd} onChange={(e) => setForm({ ...form, windowEnd: e.target.value })} />
+              </label>
+              <label className="flex flex-col gap-1.5 text-sm">
+                <span className="text-muted-foreground text-xs">时区（IANA，空=服务器本地）</span>
+                <Input value={form.timezone} onChange={(e) => setForm({ ...form, timezone: e.target.value })} placeholder="Asia/Shanghai" />
+              </label>
+              <label className="flex flex-col gap-1.5 text-sm">
+                <span className="text-muted-foreground text-xs">原生 HTTP 并发上限（0=不限）</span>
+                <Input type="number" min={0} max={32} value={form.maxConcurrent} onChange={(e) => setForm({ ...form, maxConcurrent: e.target.value })} placeholder="4" />
+              </label>
+            </div>
             <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
               <label className="flex items-center gap-2 text-sm">
                 <Switch checked={form.dryRun} onCheckedChange={(v) => setForm({ ...form, dryRun: v })} />
@@ -1586,7 +1641,8 @@ function TaskProgramProfileCard({ taskId }: { taskId: string }) {
             </div>
             <p className="text-muted-foreground text-xs">
               Scope 不是授权范围的替代品：实际可测范围仍以 task_scope/约束为准；excluded 命中即不得测试。
-              RPS/dry-run 只对原生 http_request/session_login 硬生效；Bash/MCP 没有统一请求入口，按提示词自律，不应把它当成完整硬边界。
+              RPS/dry-run/host allow-deny/时间窗/并发只对原生 http_request/session_login 硬生效；
+              Bash/MCP 没有统一请求入口，按提示词自律，不应把它当成完整硬边界。
             </p>
           </CardContent>
         </CollapsibleContent>

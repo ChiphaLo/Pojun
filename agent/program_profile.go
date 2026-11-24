@@ -75,11 +75,131 @@ func ProgramProfileBlock(p *db.ProgramProfile) string {
 		}
 		b.WriteString("\n  即使 task_scope 里出现了匹配 excluded 的资产，也不得测试、不得为其派意图。")
 	}
+	if len(p.AllowedHosts) > 0 {
+		b.WriteString("\n- 原生 HTTP 出口 allowlist（host）：" + strings.Join(p.AllowedHosts, ", ") +
+			"；未列出的 host 会被硬拒绝（Bash/MCP 不在硬边界内）。")
+	}
+	if len(p.DeniedHosts) > 0 {
+		b.WriteString("\n- 原生 HTTP 出口 denylist（host）：" + strings.Join(p.DeniedHosts, ", ") +
+			"；deny 优先于 allow，命中即拒绝。")
+	}
+	if p.WindowStart != "" && p.WindowEnd != "" {
+		tz := p.Timezone
+		if tz == "" {
+			tz = "服务器本地时区"
+		}
+		b.WriteString(fmt.Sprintf("\n- 允许测试时间窗：%s-%s（%s）；窗口外原生 HTTP 请求会被拒绝，Bash/MCP 仅提示自律。",
+			p.WindowStart, p.WindowEnd, tz))
+	}
+	if p.MaxConcurrent > 0 {
+		b.WriteString(fmt.Sprintf("\n- 原生 HTTP 并发上限：%d（超出会等待，不会丢弃请求）。", p.MaxConcurrent))
+	}
 	if len(p.ScannersAllowed) > 0 {
 		b.WriteString("\n- 允许的扫描器/工具族：" + strings.Join(p.ScannersAllowed, ", ") +
 			"；未列出的扫描器不要主动使用（手工 curl/单请求验证不受此限，但仍受速率与范围约束）。")
 	}
 	return b.String()
+}
+
+// ---- 原生 HTTP 出口硬边界（P2-4 第一批） ----
+
+// hostMatchesPattern matches an exact host or a leading "*." wildcard. Host is
+// already lowercased and port-stripped by the caller.
+func hostMatchesPattern(host, pattern string) bool {
+	pattern = strings.ToLower(strings.TrimSpace(pattern))
+	if pattern == "" {
+		return false
+	}
+	if strings.HasPrefix(pattern, "*.") {
+		suffix := strings.TrimPrefix(pattern, "*")
+		return strings.HasSuffix(host, suffix)
+	}
+	return host == pattern
+}
+
+func hostInList(host string, list []string) bool {
+	for _, p := range list {
+		if hostMatchesPattern(host, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// checkProgramEgress applies the native-HTTP host allow/deny lists and the time
+// window. It is called in doHTTP before any request bytes are sent. Empty
+// profile fields mean “no restriction”.
+func checkProgramEgress(host string, now time.Time, allowed, denied []string, start, end string, loc *time.Location) error {
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	if host == "" {
+		return fmt.Errorf("目标 host 为空")
+	}
+	if hostInList(host, denied) {
+		return fmt.Errorf("目标 host %s 命中 program denylist，已拒绝（原生 HTTP 硬边界）", host)
+	}
+	if len(allowed) > 0 && !hostInList(host, allowed) {
+		return fmt.Errorf("目标 host %s 不在 program allowlist 内，已拒绝（原生 HTTP 硬边界）", host)
+	}
+	if start != "" && end != "" {
+		if loc == nil {
+			loc = time.Local
+		}
+		if !inTimeWindow(now.In(loc), start, end) {
+			return fmt.Errorf("当前不在 program 允许的测试时间窗 %s-%s（%s），已拒绝原生 HTTP 请求", start, end, loc.String())
+		}
+	}
+	return nil
+}
+
+// inTimeWindow supports overnight windows (start > end), e.g. 22:00-06:00.
+// start == end is treated as all-day.
+func inTimeWindow(now time.Time, start, end string) bool {
+	st, err1 := time.Parse("15:04", start)
+	et, err2 := time.Parse("15:04", end)
+	if err1 != nil || err2 != nil {
+		return true // 校验层已拒绝非法值；宁放行不误杀
+	}
+	cur := now.Hour()*60 + now.Minute()
+	s := st.Hour()*60 + st.Minute()
+	e := et.Hour()*60 + et.Minute()
+	if s == e {
+		return true
+	}
+	if s < e {
+		return cur >= s && cur < e
+	}
+	return cur >= s || cur < e
+}
+
+type programSemaphore struct {
+	mu  sync.Mutex
+	ch  chan struct{}
+	max int
+}
+
+var programSemaphores sync.Map // int64 taskID -> *programSemaphore
+
+// acquireProgramSlot limits concurrent native-HTTP requests per task. It waits
+// (respecting ctx) instead of dropping the request. max<=0 = no limit.
+func acquireProgramSlot(ctx context.Context, taskID int64, max int) (func(), error) {
+	if taskID <= 0 || max <= 0 {
+		return func() {}, nil
+	}
+	v, _ := programSemaphores.LoadOrStore(taskID, &programSemaphore{})
+	sem := v.(*programSemaphore)
+	sem.mu.Lock()
+	if sem.ch == nil || sem.max != max {
+		sem.ch = make(chan struct{}, max)
+		sem.max = max
+	}
+	ch := sem.ch
+	sem.mu.Unlock()
+	select {
+	case ch <- struct{}{}:
+		return func() { <-ch }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 // ---- 进程内 RPS 令牌桶 ----

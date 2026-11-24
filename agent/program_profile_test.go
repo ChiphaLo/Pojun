@@ -23,9 +23,11 @@ func TestProgramProfileBlock(t *testing.T) {
 		Platform: "hackerone", Handle: "acme", RPS: 2, DryRun: true, AllowRace: true,
 		Scope: []string{"example.com"}, Excluded: []string{"admin.example.com"},
 		ScannersAllowed: []string{"nuclei"},
+		AllowedHosts:    []string{"*.example.com"}, DeniedHosts: []string{"admin.example.com"},
+		WindowStart: "09:00", WindowEnd: "18:00", Timezone: "Asia/Shanghai", MaxConcurrent: 4,
 	}
 	got := ProgramProfileBlock(p)
-	for _, want := range []string{"hackerone", "acme", "2.00 req/s", "dry-run", "admin.example.com", "nuclei"} {
+	for _, want := range []string{"hackerone", "acme", "2.00 req/s", "dry-run", "admin.example.com", "nuclei", "allowlist", "09:00-18:00", "并发上限：4"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("block missing %q:\n%s", want, got)
 		}

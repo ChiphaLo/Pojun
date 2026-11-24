@@ -2,6 +2,27 @@
 
 本项目的重要变更记录在此文件中，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.4.116] - 2026-11-24
+### 新增：原生 HTTP 出口 allow/deny + 时间窗 + 并发上限（P2-4 第一批）
+
+- **Program Profile 新字段**：`allowed_hosts` / `denied_hosts`（精确或
+  `*.example.com`）、`window_start` / `window_end`（HH:MM，支持跨夜）、
+  `timezone`（IANA，空=服务器本地）、`max_concurrent`（0=不限）。
+- **原生 HTTP 硬边界**：`http_request` / `session_login` 在发请求前检查
+  host allow/deny 与时间窗；deny 优先于 allow；重定向目标也会重新检查，
+  防止 302 绕过初始 URL 的边界。并发上限用进程内信号量，超出等待而不是丢弃。
+- **仍然明确边界**：Bash/MCP 没有统一请求入口，不做半套硬边界，只在提示词
+  中要求按同样节奏/范围自律；UI 与提示都写明这一点。
+- **前端**：Program Profile 卡新增 allowlist/denylist、时间窗、时区、并发上限字段；
+  未配置时零行为变化。
+
+### 测试
+
+- DB：host 通配/URL 拒绝/控制字符、时间窗必须成对、非法时区、并发上限。
+- Agent：host 匹配、跨夜时间窗、allow/deny 优先级、denied host 不发请求、
+  redirect 不能绕过 denylist、并发信号量等待。
+- 干净库：db 47.0s / agent 77.2s / server 52.3s 全绿；前端 tsc + 静态构建通过。
+
 ## [0.4.115] - 2026-11-24
 ### 新增：高错误率工具标注（P2-1 第二批）
 

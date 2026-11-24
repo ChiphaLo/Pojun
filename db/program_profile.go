@@ -18,14 +18,17 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
-	ProgramProfileMaxScope     = 200
-	ProgramProfileMaxExcluded  = 200
-	ProgramProfileMaxScanners  = 50
-	ProgramProfileMaxItemRunes = 300
-	ProgramProfileMaxRPS       = 100
+	ProgramProfileMaxScope      = 200
+	ProgramProfileMaxExcluded   = 200
+	ProgramProfileMaxScanners   = 50
+	ProgramProfileMaxItemRunes  = 300
+	ProgramProfileMaxRPS        = 100
+	ProgramProfileMaxHosts      = 200
+	ProgramProfileMaxConcurrent = 32
 )
 
 var ErrTaskNotFound = errors.New("task not found")
@@ -39,6 +42,14 @@ type ProgramProfile struct {
 	AllowRace       bool     `json:"allow_race,omitempty"`
 	DryRun          bool     `json:"dry_run,omitempty"`
 	RPS             float64  `json:"rps,omitempty"` // 0 = 不限速
+	// P2-4 第一批：只对原生 HTTP 执行器生效的硬边界。空 allowlist = 不限制；
+	// denied 永远优先。host 支持精确匹配或 *.example.com 通配。
+	AllowedHosts  []string `json:"allowed_hosts,omitempty"`
+	DeniedHosts   []string `json:"denied_hosts,omitempty"`
+	WindowStart   string   `json:"window_start,omitempty"` // HH:MM（本地/指定时区）
+	WindowEnd     string   `json:"window_end,omitempty"`
+	Timezone      string   `json:"timezone,omitempty"` // IANA，空=服务器本地
+	MaxConcurrent int      `json:"max_concurrent,omitempty"`
 }
 
 // Normalize trims/dedupes and rejects values that would bloat prompts or make
@@ -68,6 +79,34 @@ func (p *ProgramProfile) Normalize() error {
 	if p.ScannersAllowed, err = normalizeProfileList(p.ScannersAllowed, ProgramProfileMaxScanners, 64); err != nil {
 		return fmt.Errorf("scanners_allowed: %w", err)
 	}
+	if p.AllowedHosts, err = normalizeHostList(p.AllowedHosts, ProgramProfileMaxHosts); err != nil {
+		return fmt.Errorf("allowed_hosts: %w", err)
+	}
+	if p.DeniedHosts, err = normalizeHostList(p.DeniedHosts, ProgramProfileMaxHosts); err != nil {
+		return fmt.Errorf("denied_hosts: %w", err)
+	}
+	p.WindowStart = strings.TrimSpace(p.WindowStart)
+	p.WindowEnd = strings.TrimSpace(p.WindowEnd)
+	if (p.WindowStart == "") != (p.WindowEnd == "") {
+		return fmt.Errorf("window_start/window_end 必须同时配置")
+	}
+	if p.WindowStart != "" {
+		if _, err := time.Parse("15:04", p.WindowStart); err != nil {
+			return fmt.Errorf("window_start 必须是 HH:MM")
+		}
+		if _, err := time.Parse("15:04", p.WindowEnd); err != nil {
+			return fmt.Errorf("window_end 必须是 HH:MM")
+		}
+	}
+	p.Timezone = strings.TrimSpace(p.Timezone)
+	if p.Timezone != "" {
+		if _, err := time.LoadLocation(p.Timezone); err != nil {
+			return fmt.Errorf("timezone 非法: %v", err)
+		}
+	}
+	if p.MaxConcurrent < 0 || p.MaxConcurrent > ProgramProfileMaxConcurrent {
+		return fmt.Errorf("max_concurrent 必须在 0-%d 之间", ProgramProfileMaxConcurrent)
+	}
 	if math.IsNaN(p.RPS) || math.IsInf(p.RPS, 0) || p.RPS < 0 || p.RPS > ProgramProfileMaxRPS {
 		return fmt.Errorf("rps 必须在 0-%d 之间", ProgramProfileMaxRPS)
 	}
@@ -83,7 +122,9 @@ func (p *ProgramProfile) Normalize() error {
 func (p *ProgramProfile) IsZero() bool {
 	return p == nil || (p.Platform == "" && p.Handle == "" && len(p.Scope) == 0 &&
 		len(p.Excluded) == 0 && len(p.ScannersAllowed) == 0 &&
-		!p.AllowRace && !p.DryRun && p.RPS == 0)
+		len(p.AllowedHosts) == 0 && len(p.DeniedHosts) == 0 &&
+		p.WindowStart == "" && p.WindowEnd == "" && p.Timezone == "" &&
+		!p.AllowRace && !p.DryRun && p.RPS == 0 && p.MaxConcurrent == 0)
 }
 
 // hasProfileControl rejects CR/LF/TAB/DEL and other C0 controls: profile strings
@@ -95,6 +136,41 @@ func hasProfileControl(s string) bool {
 		}
 	}
 	return false
+}
+
+// normalizeHostList lowercases and trims host patterns, allowing exact hosts
+// and leading "*." wildcards. URLs/paths are rejected to avoid ambiguous scope.
+func normalizeHostList(in []string, maxItems int) ([]string, error) {
+	out := make([]string, 0, len(in))
+	seen := map[string]bool{}
+	for _, raw := range in {
+		s := strings.ToLower(strings.TrimSpace(raw))
+		if s == "" {
+			continue
+		}
+		if hasProfileControl(s) || len([]rune(s)) > 253 {
+			return nil, fmt.Errorf("host 含控制字符或超过 253 字")
+		}
+		if strings.ContainsAny(s, "/?#@ 	") {
+			return nil, fmt.Errorf("host 不能包含 URL/路径/空白: %q", s)
+		}
+		if strings.HasPrefix(s, "*.") {
+			if len(s) <= 2 {
+				return nil, fmt.Errorf("通配 host 非法: %q", s)
+			}
+		} else if strings.Contains(s, "*") {
+			return nil, fmt.Errorf("只支持 *.example.com 形式通配: %q", s)
+		}
+		if seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+		if len(out) > maxItems {
+			return nil, fmt.Errorf("超过 %d 条", maxItems)
+		}
+	}
+	return out, nil
 }
 
 func normalizeProfileList(in []string, maxItems, maxRunes int) ([]string, error) {

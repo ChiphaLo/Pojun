@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	acperm "github.com/Autumn-27/norma/permission"
@@ -90,9 +91,15 @@ type ToolSet struct {
 	egressCA    string
 	// programProfile 是任务级 SRC/众测 profile（v0.4.112）：仅用于原生 HTTP 的
 	// X-Bug-Bounty/RPS/dry-run 与提示渲染；nil=未配置，行为完全不变。
-	programProfile *db.ProgramProfile
-	programHandle  string
-	dryRun         bool
+	programProfile       *db.ProgramProfile
+	programHandle        string
+	dryRun               bool
+	programAllowedHosts  []string
+	programDeniedHosts   []string
+	programWindowStart   string
+	programWindowEnd     string
+	programLoc           *time.Location
+	programMaxConcurrent int
 	// lastScopeWarnings 是最近一次 record_fact 中 source/foreign 资产的提示，
 	// 只回传、不阻断写入。
 	lastScopeWarnings []string
@@ -251,12 +258,24 @@ func (t *ToolSet) SetProgramProfile(p *db.ProgramProfile) {
 	t.programProfile = p
 	if p == nil || p.IsZero() {
 		t.programHandle, t.dryRun = "", false
+		t.programAllowedHosts, t.programDeniedHosts = nil, nil
+		t.programWindowStart, t.programWindowEnd, t.programLoc = "", "", nil
+		t.programMaxConcurrent = 0
 		if t.taskID > 0 {
 			ConfigureProgramRPS(t.taskID, 0)
 		}
 		return
 	}
 	t.programHandle, t.dryRun = strings.TrimSpace(p.Handle), p.DryRun
+	t.programAllowedHosts, t.programDeniedHosts = p.AllowedHosts, p.DeniedHosts
+	t.programWindowStart, t.programWindowEnd = p.WindowStart, p.WindowEnd
+	t.programMaxConcurrent = p.MaxConcurrent
+	t.programLoc = time.Local
+	if strings.TrimSpace(p.Timezone) != "" {
+		if loc, err := time.LoadLocation(strings.TrimSpace(p.Timezone)); err == nil {
+			t.programLoc = loc
+		}
+	}
 	if t.taskID > 0 {
 		ConfigureProgramRPS(t.taskID, p.RPS)
 	}
