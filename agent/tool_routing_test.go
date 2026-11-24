@@ -9,14 +9,17 @@ import (
 )
 
 func TestRenderToolRoutingStats(t *testing.T) {
-	if got := renderToolRoutingStats("recon", nil); got != "" {
+	if got := renderToolRoutingStats("recon", nil, nil); got != "" {
 		t.Fatalf("empty stats should render empty, got %q", got)
 	}
-	got := renderToolRoutingStats("recon", []db.ToolOutcomeStat{
-		{Tool: "http_request", Uses: 5, Errors: 0},
-		{Tool: "Bash", Uses: 10, Errors: 2},
-	})
-	for _, want := range []string{"侦察/枚举", "http_request：5 次 / 错误 0（0%）", "Bash：10 次 / 错误 2（20%）", "未列出的工具不代表不能用"} {
+	got := renderToolRoutingStats("recon",
+		[]db.ToolOutcomeStat{
+			{Tool: "http_request", Uses: 5, Errors: 0},
+			{Tool: "Bash", Uses: 10, Errors: 2},
+		},
+		[]db.ToolOutcomeStat{{Tool: "nmap", Uses: 10, Errors: 7}},
+	)
+	for _, want := range []string{"侦察/枚举", "http_request：5 次 / 错误 0（0%）", "Bash：10 次 / 错误 2（20%）", "历史高错误率", "nmap：10 次 / 错误 7（70%）", "未列出的工具不代表不能用"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q:\n%s", want, got)
 		}
@@ -60,6 +63,12 @@ VALUES ($1,$2,'worker',$3,$4,$5)`, task.ExplorationID, intent, kind, tool, isErr
 	}
 	for i := 0; i < 5; i++ {
 		insert("http_request", "tool_use", false)
+	}
+	for i := 0; i < 10; i++ {
+		insert("nmap", "tool_use", false)
+	}
+	for i := 0; i < 7; i++ {
+		insert("nmap", "tool_result", true)
 	}
 	block := toolRoutingBlock(es, &db.Node{Payload: []byte(`{"dimension":"recon","summary":"recon"}`)}, 5)
 	if !strings.Contains(block, "http_request") || !strings.Contains(block, "Bash") {

@@ -50,41 +50,72 @@ func toolRoutingBlock(ts *db.ExplorationStore, intent *db.Node, limit int) strin
 		limit = 5
 	}
 	stats, err := ts.ToolOutcomeStats(dim, limit)
-	if err != nil || len(stats) < 2 {
+	if err != nil {
 		return ""
 	}
-	filtered := make([]db.ToolOutcomeStat, 0, len(stats))
+	riskyRaw, _ := ts.HighErrorTools(dim, 5, 0.6, 3)
+	best := make([]db.ToolOutcomeStat, 0, len(stats))
+	risky := make([]db.ToolOutcomeStat, 0, len(riskyRaw))
 	total := 0
-	for _, st := range stats {
-		if toolRoutingExclude[st.Tool] || st.Uses <= 0 {
-			continue
+	seen := map[string]bool{}
+	accept := func(st db.ToolOutcomeStat, high bool) {
+		if toolRoutingExclude[st.Tool] || st.Uses <= 0 || seen[st.Tool] {
+			return
 		}
-		filtered = append(filtered, st)
+		rate := float64(st.Errors) / float64(st.Uses)
+		if high && rate < 0.6 {
+			return
+		}
+		if !high && rate >= 0.6 {
+			return
+		}
+		seen[st.Tool] = true
 		total += st.Uses
+		if high {
+			risky = append(risky, st)
+		} else {
+			best = append(best, st)
+		}
 	}
-	if len(filtered) < 2 || total < 8 {
+	for _, st := range stats {
+		accept(st, false)
+	}
+	for _, st := range riskyRaw {
+		accept(st, true)
+	}
+	if len(best)+len(risky) < 2 || total < 8 {
 		return ""
 	}
-	return renderToolRoutingStats(dim, filtered)
+	return renderToolRoutingStats(dim, best, risky)
 }
 
 // renderToolRoutingStats is pure so it can be tested without a DB.
-func renderToolRoutingStats(dim string, stats []db.ToolOutcomeStat) string {
-	if len(stats) == 0 {
+func renderToolRoutingStats(dim string, best, risky []db.ToolOutcomeStat) string {
+	if len(best) == 0 && len(risky) == 0 {
 		return ""
 	}
 	var b strings.Builder
 	b.WriteString("\n\n【本维度工具表现（历史，仅参考；不是限制）】")
-	b.WriteString("\n维度：" + DimensionLabel(dim) + "。按历史错误率从低到高：")
-	for _, st := range stats {
-		rate := 0.0
-		if st.Uses > 0 {
-			rate = float64(st.Errors) / float64(st.Uses) * 100
-			if rate > 100 {
-				rate = 100 // 一个 use 可能对应多条 error result；展示封顶
+	b.WriteString("\n维度：" + DimensionLabel(dim) + "。")
+	writeStats := func(items []db.ToolOutcomeStat) {
+		for _, st := range items {
+			rate := 0.0
+			if st.Uses > 0 {
+				rate = float64(st.Errors) / float64(st.Uses) * 100
+				if rate > 100 {
+					rate = 100 // 一个 use 可能对应多条 error result；展示封顶
+				}
 			}
+			b.WriteString(fmt.Sprintf("\n- %s：%d 次 / 错误 %d（%.0f%%）", st.Tool, st.Uses, st.Errors, rate))
 		}
-		b.WriteString(fmt.Sprintf("\n- %s：%d 次 / 错误 %d（%.0f%%）", st.Tool, st.Uses, st.Errors, rate))
+	}
+	if len(best) > 0 {
+		b.WriteString("\n按历史错误率从低到高：")
+		writeStats(best)
+	}
+	if len(risky) > 0 {
+		b.WriteString("\n【本维度历史高错误率（优先换参数/换入口/换工具）】")
+		writeStats(risky)
 	}
 	b.WriteString("\n高错误率的工具先换参数/换入口/换工具；不要把同一失败打法重复 3 次以上。未列出的工具不代表不能用。")
 	return b.String()
