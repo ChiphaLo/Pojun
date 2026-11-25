@@ -37,6 +37,13 @@ import type {
 } from "../types";
 import * as D from "./data";
 import { hostenvStatus } from "./hostenv";
+import {
+  getMockEffortOverride,
+  getMockProfilePrompt,
+  mockPromptChain,
+  setMockEffortOverride,
+  setMockProfilePrompt,
+} from "./prompt-chain";
 
 const delay = (ms = 120) => new Promise((r) => setTimeout(r, ms));
 
@@ -2413,8 +2420,24 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
   if (path === "/llm" && m === "POST") return { ok: true };
   if (path === "/llm/test")
     return { ok: true, latency_ms: 128, model: String(b.model ?? "claude-opus-4-8"), reply: "OK" };
-  if (path === "/llm/profiles" && m === "GET") return { profiles: D.llmProfiles };
-  if (path === "/llm/profiles" && m === "POST") return { id: Number(b.id) || 3 };
+  if (path === "/llm/profiles" && m === "GET") {
+    // 演示模式下把配置面板保存过的独立提示词回填，否则再打开抽屉会看到旧文本。
+    return {
+      profiles: D.llmProfiles.map((p) => {
+        const edit = getMockProfilePrompt(Number(p.id));
+        return edit
+          ? { ...p, prompt: edit.prompt, prompt_mode: edit.mode, prompt_apply_inherited: edit.inherit }
+          : p;
+      }),
+    };
+  }
+  if (path === "/llm/profiles" && m === "POST") {
+    const pid = Number(b.id) || 0;
+    if (pid > 0) {
+      setMockProfilePrompt(pid, String(b.prompt ?? ""), String(b.prompt_mode ?? ""), Boolean(b.prompt_apply_inherited));
+    }
+    return { id: pid || 3 };
+  }
   if (path === "/llm/profiles/active") return { ok: true };
   if (path === "/llm/pool" && m === "GET") return D.llmPool;
   if (path === "/llm/pool/reset")
@@ -2435,11 +2458,47 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
     };
   if (seg[0] === "agents" && seg.length === 2 && m === "GET") return D.agentDetail(seg[1]);
   if (seg[0] === "agents" && seg[2] === "triggers" && m === "GET") return { triggers: [] };
+  if (seg[0] === "agents" && seg[2] === "prompt" && seg[3] === "chain" && m === "GET")
+    return mockPromptChain(seg[1], q.get("profile_id") ?? undefined);
   if (seg[0] === "agents" && seg[2] === "prompts") return { versions: D.agentDetail(seg[1]).versions };
   if (seg[0] === "agents" && seg[2] === "variables") return { variables: D.agentDetail(seg[1]).variables };
   if (seg[0] === "agents" && seg[2] === "prompt" && seg[3] === "preview")
     return { rendered: String(b.template ?? "").replace(/\{\{\.(\w+)\}\}/g, "«$1»") };
   if (seg[0] === "agents" && seg[2] === "visibility" && m === "GET") return D.agentDetail(seg[1]).visibility;
+  // 只读 LLM 路由投影：与真实端点同形状，运行期历史在演示数据里明确为空。
+  if (seg[0] === "agents" && seg[2] === "llm-route" && m === "GET")
+    return D.agentLLMRoute(seg[1], q.get("task_id") ?? undefined);
+  // 每 Agent 的思考强度覆盖：读写同一份内存状态，保存后 Agent 编辑器能立即看到。
+  if (seg[0] === "agents" && seg[2] === "llm-effort-overrides" && m === "GET") {
+    const overrides: { profile_id: number; effort: string; updated_at?: string }[] = [];
+    const profiles = D.llmProfiles.map((p) => {
+      const profileEffort = p.reasoning_effort ?? "";
+      const ov = getMockEffortOverride(seg[1], Number(p.id));
+      const overrideEffort = ov && ov !== "" ? ov : "";
+      if (overrideEffort) overrides.push({ profile_id: Number(p.id), effort: overrideEffort });
+      const effort = overrideEffort || profileEffort;
+      return {
+        profile_id: Number(p.id),
+        name: p.name,
+        format: p.format,
+        model: p.model,
+        is_default: p.is_default,
+        has_key: true,
+        profile_effort: profileEffort,
+        effort,
+        source: overrideEffort ? "override" : profileEffort ? "profile" : "unset",
+      };
+    });
+    return { agent_key: seg[1], overrides, profiles };
+  }
+  if (seg[0] === "agents" && seg[2] === "llm-effort-overrides" && seg.length === 4) {
+    // 演示模式下把覆盖记在内存里，右侧配置面板保存后立即能在图上看到。
+    const pid = Number(seg[3]);
+    if (m === "PUT") setMockEffortOverride(seg[1], pid, String(b.reasoning_effort ?? ""));
+    if (m === "DELETE") setMockEffortOverride(seg[1], pid, "");
+    return {};
+  }
+  if (seg[0] === "agents" && seg[2] === "llm-effort-overrides") return {}; // 其余方法：演示模式不落库
 
   // ── conversations ──
   if (path === "/conversations" && m === "GET") {

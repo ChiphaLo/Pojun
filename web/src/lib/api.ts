@@ -13,6 +13,9 @@ import type {
   Activity,
   Agent,
   AgentDetail,
+  AgentLLMRoute,
+  AgentEffortOverrides,
+  AgentPromptChain,
   AgentTrigger,
   ArchiveBatchItem,
   Asset,
@@ -1329,6 +1332,10 @@ export const api = {
     user_agent?: string; // LLM 请求的 User-Agent；""=保持 SDK/Go 默认
     retry?: LLMRetryOverride;
     preset_id?: string; // 本配置的重试覆盖；各项留 0 = 跟随全局重试策略
+    // 独立提示词（纯文本）。缺省 = 保留原值；"" = 清空。
+    prompt?: string;
+    prompt_mode?: string;
+    prompt_apply_inherited?: boolean;
   }) => post<{ id: number }>("/llm/profiles", p),
   deleteLLMProfile: (id: string) => del<{ deleted: number }>(`/llm/profiles/${id}`),
   activateLLMProfile: (id: string) => post<{ ok: boolean }>("/llm/profiles/active", { id: Number(id) }),
@@ -1447,6 +1454,30 @@ export const api = {
     get<{ variables: PromptVar[] }>(`/agents/${key}/variables`).then((r) => arr(r.variables)),
   previewAgentPrompt: (key: string, template: string, sample?: Record<string, string>) =>
     post<{ rendered: string; error?: string }>(`/agents/${key}/prompt/preview`, { template, sample }),
+  // 只读装配链：不连接 MCP、不建 provider，运行时段只给注入点与门控。
+  agentPromptChain: (key: string, profileId?: string) =>
+    get<AgentPromptChain>(
+      `/agents/${key}/prompt/chain${profileId ? `?profile_id=${encodeURIComponent(profileId)}` : ""}`,
+    ),
+  // (Agent, LLM 配置) 的 effort 覆盖：GET 同时返回每个配置的解析结果，避免 N+1。
+  agentEffortOverrides: (key: string) =>
+    get<AgentEffortOverrides>(`/agents/${key}/llm-effort-overrides`),
+  setAgentEffortOverride: (key: string, profileId: number, effort: string) =>
+    http<void>(`/agents/${key}/llm-effort-overrides/${profileId}`, {
+      method: "PUT",
+      body: JSON.stringify({ reasoning_effort: effort }),
+    }),
+  deleteAgentEffortOverride: (key: string, profileId: number) =>
+    http<void>(`/agents/${key}/llm-effort-overrides/${profileId}`, { method: "DELETE" }),
+  // 只读路由投影：静态来源链/池 + 任务内运行期转跳历史。不构建 provider。
+  agentLLMRoute: (key: string, opts?: { taskId?: string; limit?: number; before?: number }) => {
+    const q = new URLSearchParams();
+    if (opts?.taskId) q.set("task_id", opts.taskId);
+    if (opts?.limit) q.set("limit", String(opts.limit));
+    if (opts?.before) q.set("before", String(opts.before));
+    const qs = q.toString();
+    return get<AgentLLMRoute>(`/agents/${key}/llm-route${qs ? `?${qs}` : ""}`);
+  },
   getAgentVisibility: (key: string) => get<{ mcp: number[]; skill: string[] }>(`/agents/${key}/visibility`),
   setAgentVisibility: (key: string, mcp: number[], skill: string[]) =>
     put<{ ok: boolean }>(`/agents/${key}/visibility`, { mcp, skill }),
