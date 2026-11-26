@@ -21,6 +21,35 @@
   启动自检 90s；Windows 暂存目录删除有界重试；`pojun-maint` 支持 `database.dsn`。
 - **新增 `threat-modeling` skill**：任务早期资产/信任边界/滥用场景/优先级→意图。
 
+### 能力：白盒审计、出货前 Triage 与 MCP 工具指纹（内部版 v0.9.86）
+
+- **白盒审计五件套**：`repo_map`（语言/依赖/框架/入口/路由/信任边界/密钥热点）、
+  `taint_spec`（把 sources/sinks/sanitizers 确定性渲染成 Semgrep taint 规则）、
+  `sast_scan`（无 shell 跑 semgrep，按规则/严重度分组，原文落盘）、
+  `code_trace`（静态调用链，标注 source 命中）、`patch_variants`（从 unified diff
+  删除行找复制粘贴/同函数调用点）。路径锁在 `tasks/<id>/`，有文件数/大小/输出上限；
+  静态命中只算候选，必须动态复现才 `report_finding`。
+- **`triage_finding`**：planner/main 可用的确定性出货前体检（证据/verification/
+  流量/重复/归属），输出 pass/review/needs_evidence/duplicate，只提示不阻断。
+- **MCP 工具描述指纹**：`mcp_servers` 增加 `tools_hash/tools_hash_at/tools_changed/
+  tools_suspicious`；发现后按排序 name+description 算 SHA-256，变化/疑似注入在
+  MCP 页告警，不自动禁用（避免打断运行中任务）。
+
+### 修复：写工具 RawInput、暂停预算与 KEV 检索
+
+- `report_finding`/`record_fact` 启用 SDK `RawInput`，并让 guarded/untrusted/traced/
+  overridden 包装层透传 `AcceptsRawInput`——`normalizeToolInput` 的参数容错此前
+  永远跑不到（schema 校验先拒绝）。
+- `tasks.paused_total_seconds` 累计暂停时长；分钟预算改为“首次运行至今 − 累计暂停 −
+  当前暂停”，暂停很久再恢复不再瞬间超预算收尾。
+- KEV 条目补最小 `vuln_cpe_products` 行，`search_vulns` 不再因 INNER JOIN 隐藏
+  “只有 KEV、NVD 未补到”的 CVE；`SaveSyncState` 的页级进度不再把 `last_sync_at`
+  刷成 now（中断不会伪装成刚成功）。
+- **LLM 审计正文策略**：`llm_record_body_mode` 支持 `off/errors/full`，默认 `errors`
+  （成功调用只记元数据，失败调用正文单段截断 64KiB），录制页可直接切换。
+- **任务 Playbook v4**：新增 API/Java/云 K8s/代码审计/支付逻辑/前端供应链/网络设备/
+  AI LLM/数据取证/SRC 验收等模板，独立 flag `task_playbooks_v4`，不复活用户改过的同名模板。
+
 ## [0.4.122] - 2026-11-26
 ### 修复：终态经验落库 UTF-8 截断（#75）
 
