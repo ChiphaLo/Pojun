@@ -1872,6 +1872,9 @@ func (s *Server) pgSaveProfile(w http.ResponseWriter, r *http.Request) {
 		db.LLMProfile
 		APIKey    string `json:"api_key"`
 		Streaming *bool  `json:"streaming"`
+		// 视觉三态影子指针：缺省=保留原值；""=自动；on/off=写入。旧客户端/旧
+		// web bundle 不发送该字段时，不能把它悄悄重置成「自动」。
+		VisionMode *string `json:"vision_mode"`
 		// 独立提示词三态影子指针：缺省=保留原值；""=清空；文本=写入。
 		// 沿用 Streaming *bool 的先例，避免旧客户端/旧 web bundle 一保存就清空长文。
 		Prompt               *string `json:"prompt"`
@@ -1885,6 +1888,21 @@ func (s *Server) pgSaveProfile(w http.ResponseWriter, r *http.Request) {
 	p := body.LLMProfile
 	p.APIKey = body.APIKey
 	p.Streaming = body.Streaming == nil || *body.Streaming
+	// 视觉三态：显式携带则采用（含 ""=自动）；缺省则读旧值保留。读取失败拒绝
+	// 保存，避免把用户的 on/off 静默覆盖成自动。
+	switch {
+	case body.VisionMode != nil:
+		p.VisionMode = *body.VisionMode
+	case p.ID != 0:
+		old, err := pg.ProfileByID(p.ID)
+		if err != nil || old == nil {
+			writeErr(w, 500, "读取原有视觉设置失败，已拒绝保存以免覆盖")
+			return
+		}
+		p.VisionMode = old.VisionMode
+	default:
+		p.VisionMode = ""
+	}
 	// format 受 DB CHECK 约束（openai/anthropic/openai-responses）。非法值在
 	// 这里就挡掉，否则会以 500 + SQLSTATE 23514 的形式甩给用户，前端只能显示
 	// 「服务器内部错误」，看不出是自己填错了。
@@ -1900,6 +1918,15 @@ func (s *Server) pgSaveProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	if p.Format != "openai" || p.MaxTokensField != llm.MaxTokensFieldCompletion {
 		p.MaxTokensField = ""
+	}
+	// 视觉三态只接受 ''/on/off（DB CHECK 同样约束）；非法值在这里挡掉，别把
+	// SQLSTATE 23514 变成 500。
+	p.VisionMode = strings.ToLower(strings.TrimSpace(p.VisionMode))
+	switch p.VisionMode {
+	case "", "on", "off":
+	default:
+		writeErr(w, 400, "vision_mode 只能是空（自动）、on 或 off")
+		return
 	}
 	// User-Agent 是单行 HTTP 头值：含 CR/LF 会被 Go transport 拒绝（也是 header
 	// injection 的形状），在这里直接挡掉并给明确报错，别等运行时每个请求都失败。
@@ -1941,6 +1968,9 @@ func (s *Server) pgSaveProfile(w http.ResponseWriter, r *http.Request) {
 	// profile's key/model/priority/pool_exclude edit reshapes the chain, so the
 	// engine's provider has to be rebuilt either way.
 	s.reapplyActiveProfile()
+	// 视觉自动探测：配置指纹变化（或从没测过）才在后台补测一次并落库；同配置
+	// 再次保存不消耗任何 token。用户显式选了支持/不支持时由调度器自行跳过。
+	s.scheduleVisionProbe(id)
 	writeJSON(w, 200, map[string]any{"id": id})
 }
 
