@@ -1258,6 +1258,12 @@ export interface Settings {
   // 装机代理(http/https/socks5)，用于宿主工具安装和程序更新等维护请求。
   // 设置为空时可由 POJUN_INSTALL_PROXY 提供。
   install_proxy?: string;
+  // 更新专用代理：只作用于查版本/下载整包/hostd 跟随升级。空=跟随
+  // POJUN_UPDATE_PROXY → 装机代理 → 全局代理 → 直连。
+  update_proxy?: string;
+  // 只读：更新链路当前实际生效的代理与来源（update/env/install/global/direct）。
+  update_proxy_effective?: string;
+  update_proxy_source?: string;
   python_interpreter?: string; // 自定义脚本工具的 python 解释器路径(空=运行时检测)
   workers?: number; // 并发工作 agent 数(默认3)；对之后启动的任务生效
   // 冷节点压缩的输出预算(思考+正文共用)与单次墙钟超时。0=用默认值
@@ -1474,11 +1480,52 @@ export interface LLMModelMeta {
   model: string;
   context_k: number;
   max_output_k?: number;
+  /** 建议的输出上限（只填空值，不覆盖用户手改）。 */
+  max_tokens?: number;
+  /** 建议的输出上限字段名（openai 协议的 reasoning 模型用 max_completion_tokens）。 */
+  max_tokens_field?: string;
+  thinking_type?: string;
+  reasoning_effort?: string;
   reasoning: boolean;
   source: "meta" | "preset" | "none";
   // 自动档的真实结论（配置页即时显示）：vision_source 含义同 LLMProfile。
   vision?: boolean;
   vision_source?: "profile" | "probe" | "preset" | "name" | "default";
+}
+
+/** POST /api/llm/url-hint —— Base URL 失焦时的本地归一结论（不发网络请求）。 */
+export interface LLMURLHint {
+  normalized: string;
+  changed: boolean;
+  /** true=修正无歧义，可直接写回输入框；false=只提示。 */
+  confident: boolean;
+  note?: string;
+  /** 协议建议（空=无强信号）；切换必须由用户确认。 */
+  suggested_format?: "" | "anthropic" | "openai" | "openai-responses";
+  suggested_base_url?: string;
+  protocol_reason?: string;
+}
+
+/** POST /api/llm/probe 的一条逐组合结果。 */
+export interface LLMProbeAttempt {
+  provider: string;
+  base_url: string;
+  stage: "models" | "chat";
+  ok: boolean;
+  reachable?: boolean;
+  status_code?: number;
+  error_class?: string;
+  error?: string;
+  models_count?: number;
+}
+
+/** POST /api/llm/probe 的结论：可用组合 + 逐条结果 + 一键修正建议。 */
+export interface LLMProbeResult {
+  ok: boolean;
+  normalized: string;
+  best: { provider: string; base_url: string; latency_ms: number; reply?: string };
+  attempts: LLMProbeAttempt[];
+  suggestion?: { provider: string; base_url: string; reason: string };
 }
 export interface LLMCheckResult {
   ok: boolean;
@@ -2177,6 +2224,34 @@ export interface UpdateCheck {
   comparable?: boolean;
   /** comparable 为 false 时的说明。 */
   reason?: string;
+  /** 进行中的更新快照（页面刷新后据此接回 SSE；running=false 时 phase 可能是 staged）。 */
+  update?: UpdateProgress & { running: boolean };
+  /** 更新专用代理（已保存原值，空=跟随环境变量/装机/全局）。 */
+  update_proxy?: string;
+  /** 更新链路当前实际生效值（空=直连）。 */
+  update_proxy_effective?: string;
+  /** 生效值来源：update=专用设置 / env=POJUN_UPDATE_PROXY / install=装机 / global=全局 / direct=直连。 */
+  update_proxy_source?: "update" | "env" | "install" | "global" | "direct" | string;
+  /** 上次更新结果（跨进程重启保留）：running/staged/failed。 */
+  last_update?: UpdateLastRun;
+}
+
+/** 最近一次更新的跨重启记录（settings.update_last_run）。 */
+export interface UpdateLastRun {
+  from: string;
+  to: string;
+  status: "running" | "staged" | "failed";
+  error?: string;
+  at: string;
+}
+
+/** POST /api/update/proxy-test：用指定（或当前生效）代理真实查一次 GitHub Release。 */
+export interface UpdateProxyTestResult {
+  ok: boolean;
+  proxy: string;
+  latest?: string;
+  latency_ms: number;
+  error?: string;
 }
 
 /** /api/update/stream 推送的一条更新进度。 */
@@ -2326,6 +2401,8 @@ export interface VulnIntelConfig {
   github_token_set: boolean;
   proxy: string;
   poc_enabled: boolean;
+  /** FIRST EPSS 每日评分同步（默认关闭）；开启后 search_vulns 按 EPSS 优化排序。 */
+  epss_enabled: boolean;
   backfill_days: number;
   max_runtime_minutes: number;
   maintenance_proxy: string;
@@ -2338,6 +2415,7 @@ export interface VulnIntelConfigPatch {
   github_token?: string;
   proxy?: string;
   poc_enabled?: boolean;
+  epss_enabled?: boolean;
   backfill_days?: number;
   max_runtime_minutes?: number;
 }
@@ -2357,7 +2435,9 @@ export interface VulnIntelStatus {
   enabled: boolean;
   nuclei_templates_dir: string;
   sources: VulnIntelSource[];
-  counts: { cves: number; kev: number; pocs: number };
+  counts: { cves: number; kev: number; pocs: number; epss?: number; ghsa?: number };
+  /** 覆盖率：EPSS 只更新库内已有 CVE，scored/total 是唯一可信的进度指标。 */
+  coverage?: { epss?: { scored: number; total: number; pct: number } };
   config?: VulnIntelConfig;
   sync_running?: boolean;
   sync_started_at?: number;
